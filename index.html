@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Məktəb Sosial İş Alt Sistemi (Prototip)</title>
+<style>
+:root{--bg:#f4f6f9;--card:#fff;--tx:#1b2430;--mu:#5d6b7a;--pr:#1d5fd1;--bd:#d9e0e8;--ok:#1a7f4b;--wa:#b7791f;--er:#c0392b}
+@media(prefers-color-scheme:dark){:root{--bg:#10151c;--card:#1a212b;--tx:#e6ebf1;--mu:#93a1b2;--pr:#5b95f0;--bd:#2c3644}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,Arial,sans-serif;background:var(--bg);color:var(--tx)}
+header{background:var(--pr);color:#fff;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+header h1{font-size:18px;margin:0}main{max-width:1000px;margin:20px auto;padding:0 14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px}
+.head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+h2{font-size:17px;margin:0}button{font:inherit;padding:6px 12px;border-radius:7px;border:1px solid var(--bd);background:var(--card);color:var(--tx);cursor:pointer}
+button.p{background:var(--pr);color:#fff;border-color:var(--pr)}input,select{font:inherit;padding:8px;border:1px solid var(--bd);border-radius:7px;width:100%;background:var(--card);color:var(--tx);margin:4px 0 10px}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--bd);vertical-align:top}
+.tag{padding:2px 8px;border-radius:99px;font-size:12px;color:#fff}.Aşağı{background:var(--ok)}.Orta{background:var(--wa)}.Yüksək{background:var(--er)}
+.login{max-width:380px;margin:60px auto}.mu{color:var(--mu);font-size:13px}.alert{border-left:4px solid var(--er);padding:8px 12px;background:rgba(192,57,43,.1);margin-bottom:8px;border-radius:4px}
+.bar{height:16px;background:var(--pr);border-radius:4px;min-width:2px}.row{display:grid;grid-template-columns:150px 1fr 50px;gap:8px;align-items:center;margin:4px 0}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}.err{color:var(--er)}.hid{display:none}
+@media print{header,nav,.head button,.noprint{display:none!important}body{background:#fff;color:#000}body[data-print] .card:not(.printing){display:none}.card{border:none}}
+</style>
+</head>
+<body>
+<header><h1>🛡️ Məktəb Sosial İş Alt Sistemi</h1><div id="who"></div></header>
+<main>
+<div id="login" class="card login">
+  <h2>Giriş (2FA)</h2><p class="mu">Demo: istifadəçi <b>sosial</b>, <b>psixoloq</b> və ya <b>direktor</b> · parol <b>Demo#2026</b> · OTP <b>123456</b></p>
+  <div id="step1"><label>İstifadəçi adı<input id="u" autocomplete="off"></label><label>Parol<input id="pw" type="password"></label><button class="p" onclick="step1()">Davam</button></div>
+  <div id="step2" class="hid"><label>SMS/OTP kod<input id="otp" inputmode="numeric" maxlength="6"></label><button class="p" onclick="step2()">Daxil ol</button></div>
+  <p id="lerr" class="err"></p>
+</div>
+<div id="app" class="hid">
+  <nav id="nav"></nav><div id="sections"></div>
+</div>
+</main>
+<script>
+/* ===== DEMO XƏBƏRDARLIĞI: Bu fayl yalnız prototipdir. Həqiqi təhlükəsizlik (AES-256 bazada, 2FA, audit log, RBAC)
+   mütləq SERVER tərəfdə qurulmalıdır. Brauzer kodu təhlükəsizlik sərhədi deyil. ===== */
+
+/* --- İstifadəçilər və rol matrisi (Matrix of Access Rights) --- */
+const USERS={
+ sosial:{id:'u_soc1',name:'Sosial işçi',role:'social'},
+ psixoloq:{id:'u_psy1',name:'Psixoloq',role:'psych'},
+ direktor:{id:'u_dir1',name:'Direktor',role:'director'}};
+const ACCESS={social:['s1','s2','s3','s4','s5','s6'],psych:['s3'],director:['s6']};
+const TITLES={s1:'1. Şagirdin Sosial-Məişət Profili',s2:'2. Keys İdarəetməsi (Case Management)',s3:'3. Risk Qiymətləndirmə və Monitorinq',s4:'4. Vəsait, Yardım və Dəstək Mexanizmləri',s5:'5. Hüquq-Mühafizə və Xarici Qurumlarla Əlaqə',s6:'6. Məxfi Hesabatlılıq və Statistika (anonim)'};
+
+/* --- AES-256-GCM (WebCrypto) ilə şifrələnmiş yaddaş (demo) --- */
+let KEY;const enc=new TextEncoder(),dec=new TextDecoder();
+const b64=b=>btoa(String.fromCharCode(...new Uint8Array(b))),ub64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function E(o){const iv=crypto.getRandomValues(new Uint8Array(12));const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv},KEY,enc.encode(JSON.stringify(o)));return{iv:b64(iv),ct:b64(ct)}}
+async function D(e){return JSON.parse(dec.decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:ub64(e.iv)},KEY,ub64(e.ct))))}
+let DB={students:[],cases:[],assess:[],aid:[],ext:[]};
+const FN=['Aysel','Elvin','Nərmin','Rəşad','Günel','Tural','Leyla','Murad','Səbinə','Orxan','Aytən','Kamran'],LN=['Əliyeva','Həsənov','Quliyeva','Məmmədov','İsmayılova','Əhmədov','Hüseynova','Babayev','Rzayeva','Vəliyev','Nəbiyeva','Cəfərov'];
+const ST=['Valideynini itirmiş','Həssas qrup','Aztəminatlı ailə','Həssas qrup','Aztəminatlı ailə','Standart','Həssas qrup','Standart','Valideynini itirmiş','Aztəminatlı ailə','Standart','Həssas qrup'];
+const RK=['Yüksək','Orta','Orta','Yüksək','Orta','Aşağı','Orta','Aşağı','Orta','Aşağı','Aşağı','Yüksək'];
+async function seed(){
+ KEY=await crypto.subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+ for(let i=0;i<12;i++){const id='#'+(84920+i*37);
+  DB.students.push({id,pii:await E({ad:FN[i]+' '+LN[i],unvan:'Bakı, nümunə küçə '+(i+1),ailə:['Ana, ata, 2 uşaq','Yalnız ana','Nənə və baba','Ana, ögey ata'][i%4]}),status:ST[i],attend:60+((i*7)%40),disc:i%4==0?'Xəbərdarlıq':'—'});
+  DB.assess.push({id,author:i%3==0?'u_psy2':'u_psy1',risk:RK[i],note:await E({q:'Psixoloji qiymətləndirmə qeydi (nümunə) – '+id})});
+  if(RK[i]!=='Aşağı')DB.cases.push({id:'K-'+(100+i),sid:id,src:['Sinif rəhbəri','Valideyn','Şagirdin özü'][i%3],state:i%3==0?'Həll olunub':'Davam edir',notes:await E({görüş:'Görüş qeydi (nümunə) – yalnız məsul sosial işçi',plan:'Qısa: davamiyyət; Uzun: ailə dəstəyi'})});
+  if(i%2==0)DB.aid.push({sid:id,tədbir:['Maddi yardım yönləndirməsi','Geyim/dərslik dəstəyi','Psixososial seans','Ailə ilə profilaktik iş'][i%4],tarix:'2026-09-'+String(10+i).padStart(2,'0')});
+  if(RK[i]==='Yüksək')DB.ext.push({sid:id,qurum:['Polis','Uşaq Hüquqları Komissiyası','Səhiyyə'][i%3],status:'Bildiriş hazırlanıb'});
+ }}
+
+/* --- Silinməz audit log (SHA-256 hash zənciri, append-only) --- */
+const AUDIT=[];let cur=null;
+async function sha(s){return b64(await crypto.subtle.digest('SHA-256',enc.encode(s)))}
+async function log(action,target='—'){const prev=AUDIT.length?AUDIT[AUDIT.length-1].h:'GENESIS';const e={t:new Date().toISOString(),user:cur.id,role:cur.role,action,target,prev};e.h=await sha(prev+JSON.stringify(e));AUDIT.push(Object.freeze(e))}
+async function verifyLog(){let p='GENESIS';for(const e of AUDIT){const{h,...r}=e;if(r.prev!==p||await sha(p+JSON.stringify(r))!==h)return false;p=h}return true}
+
+/* --- Giriş --- */
+let tmp=null;
+function step1(){const u=USERS[document.getElementById('u').value.trim()];if(u&&document.getElementById('pw').value==='Demo#2026'){tmp=u;step1El(false)}else document.getElementById('lerr').textContent='Yanlış məlumat.'}
+function step1El(){document.getElementById('step1').classList.add('hid');document.getElementById('step2').classList.remove('hid');document.getElementById('lerr').textContent=''}
+async function step2(){if(document.getElementById('otp').value!=='123456'){document.getElementById('lerr').textContent='OTP səhvdir.';return}
+ cur=tmp;await seed();await log('LOGIN');document.getElementById('login').classList.add('hid');document.getElementById('app').classList.remove('hid');
+ document.getElementById('who').innerHTML=cur.name+' <button onclick="location.reload()">Çıxış</button>';build()}
+
+/* --- Bölmələr --- */
+const allowed=()=>ACCESS[cur.role];
+function build(){const nav=document.getElementById('nav'),box=document.getElementById('sections');nav.innerHTML='';box.innerHTML='';
+ allowed().forEach(id=>{box.insertAdjacentHTML('beforeend',`<section class="card" id="${id}"><div class="head"><h2>${TITLES[id]}</h2><div><button onclick="doPrint('${id}')">🖨️ Çap</button> <button onclick="doCopy('${id}')">📋 Nüsxə</button></div></div><div class="body" id="b_${id}"></div></section>`);render(id)});
+ nav.innerHTML='<button onclick="showAudit()">Audit log</button> <button onclick="showMatrix()">Giriş hüquqları matrisi</button>';
+ box.insertAdjacentHTML('beforeend','<section class="card" id="x"><div class="head"><h2 id="xt"></h2><div><button onclick="doPrint(\'x\')">🖨️ Çap</button> <button onclick="doCopy(\'x\')">📋 Nüsxə</button></div></div><div id="xb"></div></section>');document.getElementById('x').classList.add('hid')}
+const T=(h,rows)=>`<table><tr>${h.map(x=>`<th>${x}</th>`).join('')}</tr>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</table>`;
+const tag=r=>`<span class="tag ${r}">${r}</span>`;
+async function render(id){
+ if(!allowed().includes(id)){await log('DENIED',id);return}
+ let h='';const el=document.getElementById('b_'+id);
+ if(id==='s1'){const r=[];for(const s of DB.students){const p=await D(s.pii);r.push([s.id,p.ad,p.unvan,p.ailə,s.status,s.attend+'%',s.disc]);await log('VIEW_PROFILE',s.id)}
+  h=T(['Kod','Ad (şifrəli saxlanılır)','Ünvan','Ailə tərkibi','Sosial status','Davamiyyət','İntizam'],r)}
+ if(id==='s2'){const r=[];for(const c of DB.cases){const n=await D(c.notes);r.push([c.id,c.sid,c.src,n.görüş,n.plan,c.state]);await log('VIEW_CASE',c.id)}
+  h=T(['Keys','Şagird','Mənbə','Görüş qeydi','Fəaliyyət planı','Status'],r)+'<p class="mu">Bağlama / yönləndirmə: keys statusu «Həll olunub» və ya «Psixoloqa yönləndirilib» olaraq dəyişdirilir (serverdə).</p>'}
+ if(id==='s3'){let list=DB.assess;if(cur.role==='psych')list=list.filter(a=>a.author===cur.id);
+  const hi=list.filter(a=>a.risk==='Yüksək');
+  h=hi.map(a=>`<div class="alert">⚠️ Yüksək risk bildirişi: ${a.id}</div>`).join('')+T(['Şagird kodu','Risk','Qiymətləndirmə'],await Promise.all(list.map(async a=>{await log('VIEW_ASSESS',a.id);return[a.id,tag(a.risk),(await D(a.note)).q]})));
+  if(cur.role==='psych')h+='<p class="mu">Yalnız sizin qiymətləndirmələriniz göstərilir.</p>'}
+ if(id==='s4')h=T(['Şagird','Tədbir','Tarix'],DB.aid.map(a=>[a.sid,a.tədbir,a.tarix]));
+ if(id==='s5')h=T(['Şagird','Qurum','Status'],DB.ext.map(a=>[a.sid,a.qurum,a.status]))+'<p class="mu">Xarici qurumlara məlumat yalnız hüquqi əsasla və rəhbərliyin təsdiqi ilə ötürülür.</p>';
+ if(id==='s6'){const n=DB.students.length,vul=DB.students.filter(s=>s.status!=='Standart').length,solved=DB.cases.filter(c=>c.state==='Həll olunub').length;
+  const rk=['Aşağı','Orta','Yüksək'].map(k=>[k,DB.assess.filter(a=>a.risk===k).length]);
+  const K=3,m=v=>v<K?'&lt;'+K:v; /* k-anonimlik: kiçik say gizlədilir */
+  h=`<p>Ümumi şagird: <b>${n}</b> · Həssas qrupda: <b>${m(vul)}</b> · Həll olunmuş keys: <b>${Math.round(solved/DB.cases.length*100)}%</b> · Davam edən: <b>${Math.round((1-solved/DB.cases.length)*100)}%</b></p>`+
+  rk.map(([k,v])=>`<div class="row"><span>${k} risk</span><div class="bar" style="width:${v/n*100}%"></div><b>${m(v)}</b></div>`).join('')+'<p class="mu">Ad, kod və fərdi qeydlər göstərilmir; sayı 3-dən az olan qruplar gizlədilir.</p>';await log('VIEW_STATS')}
+ el.innerHTML=h}
+async function showAudit(){const ok=await verifyLog();xshow('Audit log (zəncir bütövlüyü: '+(ok?'✔ düzgün':'✖ pozulub')+')',T(['Vaxt','İstifadəçi','Rol','Əməliyyat','Hədəf'],AUDIT.slice(-60).map(e=>[e.t,e.user,e.role,e.action,e.target])))}
+function showMatrix(){const R={social:'Sosial işçi',psych:'Psixoloq',director:'Direktor'};xshow('Giriş hüquqları matrisi',T(['Bölmə',...Object.values(R)],Object.keys(TITLES).map(s=>[TITLES[s],...Object.keys(R).map(r=>ACCESS[r].includes(s)?'✔':'—')])))}
+function xshow(t,h){document.getElementById('x').classList.remove('hid');document.getElementById('xt').textContent=t;document.getElementById('xb').innerHTML=h;document.getElementById('x').scrollIntoView()}
+
+/* --- Çap və nüsxələmə (hər bölmədə; audit logda qeyd olunur) --- */
+async function doPrint(id){const s=document.getElementById(id);await log('PRINT',id);s.classList.add('printing');document.body.dataset.print=id;window.print();s.classList.remove('printing');delete document.body.dataset.print}
+async function doCopy(id){const t=document.querySelector('#'+id+' h2').textContent+'\n'+document.querySelector('#'+id+' .body,#xb').innerText;await log('COPY',id);
+ try{await navigator.clipboard.writeText(t);alert('Nüsxələndi.')}catch{prompt('Əl ilə nüsxələyin:',t)}}
+</script>
+</body>
+</html>
